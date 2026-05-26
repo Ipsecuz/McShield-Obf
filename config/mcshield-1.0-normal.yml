@@ -1,0 +1,291 @@
+# McShield 1.0 - Minecraft Plugin Normal Safe Config
+# Dành cho plugin Minecraft/Paper/Bukkit bình thường, không public API lớn.
+# Ưu tiên: plugin load ổn, che main tốt, không phá command/plugin.yml.
+#
+# Run:
+# java -jar mcshield-1.0.jar input.jar output-obf.jar -config mcshield-1.0-normal.yml -lib ./libs
+
+seed: 0
+
+frames:
+  # Preserve StackMapTable để tránh VerifyError với dependency/shaded libs.
+  mode: preserve
+
+runtime:
+  package: rt.mcshield
+  stringsClass: Strings
+  refClass: Reflect
+  guardClass: Guard
+  wrapperClass: Wrap
+
+jar:
+  removeSignatures: true
+
+minecraft:
+  updateYamlKeys:
+    - main
+    - paper-plugin-loader
+    - bootstrapper
+    - loader
+
+  # SAFE DEFAULT:
+  # Không rename/strip command key trong plugin.yml.
+  # Nhiều plugin dùng getCommand("name"), rename command key dễ làm lỗi lệnh.
+  commandRename:
+    enabled: false
+  commandCamouflage:
+    enabled: false
+  commandDecoys:
+    enabled: false
+  stripCommands: false
+  stripPermissions: false
+  virtualizeCommands: false
+  runtimeCommandRegistration: false
+  obfuscateDescription: false
+  obfuscateUsage: false
+
+pluginYaml:
+  obfuscate: false
+  keepCommands: true
+  keepPermissions: true
+  keepDescription: true
+  keepUsage: true
+  stripCommands: false
+  stripPermissions: false
+  commandDecoys: false
+  commandRename: false
+  commandCamouflage: false
+  virtualizeCommands: false
+
+mapping:
+  writeFile: false
+
+renaming:
+  enabled: true
+
+  # ASCII an toàn cho host/panel/zip tool.
+  # Người dùng thích symbol/icon có thể đổi style/memberStyle/packageStyle sang icons.
+  style: ascii
+  memberStyle: ascii
+  packageStyle: ascii
+  basePackage: z
+
+  # Flat package an toàn cho package-private/default-access classes.
+  packageMode: flat
+  flattenPackages: true
+  packageDepthMin: 1
+  packageDepthMax: 1
+
+  classes: true
+  methods: true
+  fields: true
+
+  minecraftSafe: true
+  keepNonPrivateMethods: true
+  keepNonPrivateFields: true
+  keepBukkitEventHandlers: true
+  keepAnnotations: true
+
+  keepEnums: false
+  enumSafe: true
+  keepEnumSyntheticMethods: true
+  updateStringClassRefs: true
+
+  # Không đụng external libs/API phổ biến.
+  keepPackages:
+    - org.bukkit.
+    - org.spigotmc.
+    - io.papermc.
+    - net.kyori.
+    - net.minecraft.
+    - com.mojang.
+    - kotlin.
+    - kotlinx.
+    - org.jetbrains.
+    - com.google.
+    - com.zaxxer.
+    - redis.clients.
+    - org.slf4j.
+    - org.yaml.
+    - okhttp3.
+    - okio.
+    - org.apache.
+    - com.fasterxml.
+
+  keepMethodNames:
+    - onEnable
+    - onDisable
+    - onLoad
+    - onCommand
+    - onTabComplete
+    - onPluginMessageReceived
+    - run
+    - call
+    - accept
+    - apply
+    - test
+    - get
+    - set
+    - equals
+    - hashCode
+    - toString
+    - values
+    - valueOf
+    - compareTo
+
+  keepFieldNames:
+    - serialVersionUID
+    - INSTANCE
+    - Companion
+
+# Main hiding ổn định.
+# plugin.yml -> boot.Pivot
+# boot.Pivot extends JavaPlugin trực tiếp
+# real delegate không nằm trên superclass chain.
+shellDelegate:
+  enabled: true
+  publicMain: boot.Pivot
+  hideDelegateDescriptor: true
+  bridgeNamesRandom: true
+  bridgePrefix: random
+  randomizeContextField: true
+  randomizeBindMethod: true
+
+  # Chỉ mã hóa string trong delegate/plugin class chính.
+  # Không bật global stringEncryption để tránh VerifyError ở dependency.
+  encryptDelegateStrings: true
+  delegateStringMode: direct
+  delegateStringMinLength: 2
+
+  padRealDelegate: true
+  realDelegateFieldTarget: 80
+  realDelegateMethodTarget: 240
+  realDelegateSurfaceRepeats: 2
+
+  delegateDecoys:
+    enabled: true
+    classes: 180
+    fieldCount: 80
+    methodCount: 240
+    surfaceRepeats: 2
+    samePackage: true
+    fakeBridgeMembers: true
+    wrapperMethods: true
+    mixedSizes: true
+
+  # Rename method nhạy private/internal, giữ accessor/public để tránh lỗi call-site/API.
+  renameSensitiveMethods: true
+  keepNonPrivateSensitiveMethods: true
+  keepAccessorSensitiveMethods: true
+
+  virtualizeCommands: false
+  runtimeCommandRegistration: false
+
+entrypointProxy:
+  enabled: false
+shadowBoot:
+  enabled: false
+shadowVault:
+  enabled: false
+  virtualizePluginYaml: false
+javaPluginUnderlay:
+  enabled: false
+
+javaPluginDecoys:
+  enabled: true
+  classes: 240
+  fieldCount: 64
+  methodCount: 180
+  sourceFile: pivot.c
+  package: z
+  sameNamespace: true
+  fakeLifecycle: true
+  fakeSensitiveNames: true
+
+# Các module rewrite body mạnh để OFF mặc định cho mọi plugin.
+stringEncryption:
+  enabled: false
+referenceReflection:
+  enabled: false
+fieldReflection:
+  enabled: false
+antiDebug:
+  enabled: false
+controlFlow:
+  enabled: false
+
+antiDecompile:
+  enabled: true
+  sourceNoise: true
+  fakeCLanguage: true
+  cSourceFile: entry.c
+  localVariableNoise: false
+  lineNoise: true
+  exceptionNoise: false
+  stripLocalVariables: true
+  skipClasses:
+    - org/apache/**
+    - org.apache.**
+    - okhttp3/**
+    - okio/**
+    - com/fasterxml/**
+    - com.fasterxml.**
+    - kotlin/**
+    - kotlinx/**
+
+deadCode:
+  enabled: true
+  classes: 48
+  methodsPerClass: 5
+  package: z.x.y
+  style: ascii
+  packageTree:
+    enabled: true
+    minDepth: 4
+    maxDepth: 10
+
+decoyTree:
+  enabled: true
+  classes: 120
+  resources: true
+  resourceFiles: 48
+  basePackage: z
+  packageStyle: ascii
+  classStyle: ascii
+  depthMin: 8
+  depthMax: 18
+  packageNameMinLength: 8
+  packageNameMaxLength: 20
+  classNameMinLength: 20
+  classNameMaxLength: 48
+  methodsPerClass: 4
+  sourceFile: blob.c
+
+fakeC:
+  enabled: true
+  sourceFile: entry.c
+  injectResource: true
+  resources: 4
+
+nativeGuard:
+  # Open-source public config: native guard optional/off by default for portability.
+  # Set enabled: true only if your release includes native libs for target platforms.
+  enabled: false
+  required: false
+  linuxX64: true
+  resource: META-INF/.mcshield/native/linux-x86_64/libmcsng.so
+
+mappingShifting:
+  enabled: false
+  files: []
+
+optimizer:
+  enabled: false
+  removeDebug: false
+
+watermark:
+  enabled: false
+  buyerId: public-build
+  salt: change-me
+  resource: META-INF/.mcshield/fingerprint.dat
+  plainInJar: false

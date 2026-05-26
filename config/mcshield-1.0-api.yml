@@ -1,0 +1,286 @@
+# McShield 1.0 - Minecraft Plugin API Safe Config
+# Dành cho plugin có public API để plugin khác hook vào.
+# Ưu tiên: không phá method/field public, giữ binary compatibility tốt hơn.
+#
+# Run:
+# java -jar mcshield-1.0.jar input.jar output-obf.jar -config mcshield-1.0-api.yml -lib ./libs
+
+seed: 0
+
+frames:
+  mode: preserve
+
+runtime:
+  package: rt.mcshield
+  stringsClass: Strings
+  refClass: Reflect
+  guardClass: Guard
+  wrapperClass: Wrap
+
+jar:
+  removeSignatures: true
+
+minecraft:
+  updateYamlKeys:
+    - main
+    - paper-plugin-loader
+    - bootstrapper
+    - loader
+
+  # API plugin thường có command/plugin identity public.
+  # Không obf plugin.yml command key.
+  commandRename:
+    enabled: false
+  commandCamouflage:
+    enabled: false
+  commandDecoys:
+    enabled: false
+  stripCommands: false
+  stripPermissions: false
+  virtualizeCommands: false
+  runtimeCommandRegistration: false
+  obfuscateDescription: false
+  obfuscateUsage: false
+
+pluginYaml:
+  obfuscate: false
+  keepCommands: true
+  keepPermissions: true
+  keepDescription: true
+  keepUsage: true
+  stripCommands: false
+  stripPermissions: false
+  commandDecoys: false
+  commandRename: false
+  commandCamouflage: false
+  virtualizeCommands: false
+
+mapping:
+  writeFile: false
+
+renaming:
+  enabled: true
+  style: ascii
+  memberStyle: ascii
+  packageStyle: ascii
+  basePackage: z
+
+  # Quan trọng cho package-private classes.
+  packageMode: flat
+  flattenPackages: true
+  packageDepthMin: 1
+  packageDepthMax: 1
+
+  classes: true
+
+  # API SAFE:
+  # Để false nếu plugin khác compile/hook vào method/field của bạn.
+  # Nếu chỉ có API package riêng, có thể bật methods/fields true và keepPackages API.
+  methods: false
+  fields: false
+
+  minecraftSafe: true
+  keepNonPrivateMethods: true
+  keepNonPrivateFields: true
+  keepBukkitEventHandlers: true
+  keepAnnotations: true
+
+  keepEnums: false
+  enumSafe: true
+  keepEnumSyntheticMethods: true
+  updateStringClassRefs: true
+
+  keepPackages:
+    - org.bukkit.
+    - org.spigotmc.
+    - io.papermc.
+    - net.kyori.
+    - net.minecraft.
+    - com.mojang.
+    - kotlin.
+    - kotlinx.
+    - org.jetbrains.
+    - com.google.
+    - com.zaxxer.
+    - redis.clients.
+    - org.slf4j.
+    - org.yaml.
+    - okhttp3.
+    - okio.
+    - org.apache.
+    - com.fasterxml.
+
+    # Thêm API package của plugin bạn vào đây, ví dụ:
+    # - com.yourplugin.api.
+    # - me.yourname.plugin.api.
+
+  keepMethodNames:
+    - onEnable
+    - onDisable
+    - onLoad
+    - onCommand
+    - onTabComplete
+    - onPluginMessageReceived
+    - run
+    - call
+    - accept
+    - apply
+    - test
+    - get
+    - set
+    - equals
+    - hashCode
+    - toString
+    - values
+    - valueOf
+    - compareTo
+
+  keepFieldNames:
+    - serialVersionUID
+    - INSTANCE
+    - Companion
+
+shellDelegate:
+  enabled: true
+  publicMain: boot.Pivot
+  hideDelegateDescriptor: true
+  bridgeNamesRandom: true
+  bridgePrefix: random
+  randomizeContextField: true
+  randomizeBindMethod: true
+
+  # API plugin: chỉ mã hóa delegate strings nhẹ.
+  encryptDelegateStrings: true
+  delegateStringMode: direct
+  delegateStringMinLength: 3
+
+  padRealDelegate: true
+  realDelegateFieldTarget: 64
+  realDelegateMethodTarget: 180
+  realDelegateSurfaceRepeats: 2
+
+  delegateDecoys:
+    enabled: true
+    classes: 120
+    fieldCount: 64
+    methodCount: 180
+    surfaceRepeats: 2
+    samePackage: true
+    fakeBridgeMembers: true
+    wrapperMethods: true
+    mixedSizes: true
+
+  # API SAFE: không rename sensitive public API.
+  renameSensitiveMethods: false
+  keepNonPrivateSensitiveMethods: true
+  keepAccessorSensitiveMethods: true
+
+  virtualizeCommands: false
+  runtimeCommandRegistration: false
+
+entrypointProxy:
+  enabled: false
+shadowBoot:
+  enabled: false
+shadowVault:
+  enabled: false
+  virtualizePluginYaml: false
+javaPluginUnderlay:
+  enabled: false
+
+javaPluginDecoys:
+  enabled: true
+  classes: 160
+  fieldCount: 48
+  methodCount: 120
+  sourceFile: pivot.c
+  package: z
+  sameNamespace: true
+  fakeLifecycle: true
+  fakeSensitiveNames: true
+
+# Không rewrite dependency/body mạnh trong API profile.
+stringEncryption:
+  enabled: false
+referenceReflection:
+  enabled: false
+fieldReflection:
+  enabled: false
+antiDebug:
+  enabled: false
+controlFlow:
+  enabled: false
+
+antiDecompile:
+  enabled: true
+  sourceNoise: true
+  fakeCLanguage: true
+  cSourceFile: entry.c
+  localVariableNoise: false
+  lineNoise: true
+  exceptionNoise: false
+  stripLocalVariables: true
+  skipClasses:
+    - org/apache/**
+    - org.apache.**
+    - okhttp3/**
+    - okio/**
+    - com/fasterxml/**
+    - com.fasterxml.**
+    - kotlin/**
+    - kotlinx/**
+
+deadCode:
+  enabled: true
+  classes: 32
+  methodsPerClass: 4
+  package: z.x.y
+  style: ascii
+  packageTree:
+    enabled: true
+    minDepth: 4
+    maxDepth: 8
+
+decoyTree:
+  enabled: true
+  classes: 80
+  resources: true
+  resourceFiles: 32
+  basePackage: z
+  packageStyle: ascii
+  classStyle: ascii
+  depthMin: 6
+  depthMax: 14
+  packageNameMinLength: 8
+  packageNameMaxLength: 20
+  classNameMinLength: 20
+  classNameMaxLength: 48
+  methodsPerClass: 3
+  sourceFile: blob.c
+
+fakeC:
+  enabled: true
+  sourceFile: entry.c
+  injectResource: true
+  resources: 4
+
+nativeGuard:
+  enabled: false
+  required: false
+  linuxX64: true
+  resource: META-INF/.mcshield/native/linux-x86_64/libmcsng.so
+
+mappingShifting:
+  enabled: false
+  files: []
+
+optimizer:
+  enabled: false
+  removeDebug: false
+
+watermark:
+  enabled: false
+  buyerId: public-build
+  salt: change-me
+  resource: META-INF/.mcshield/fingerprint.dat
+  plainInJar: false
