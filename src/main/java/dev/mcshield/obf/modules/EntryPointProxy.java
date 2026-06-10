@@ -7,6 +7,7 @@ import dev.mcshield.obf.io.JarModel;
 import dev.mcshield.obf.util.NameGenerator;
 import jdk.internal.org.objectweb.asm.ClassWriter;
 import jdk.internal.org.objectweb.asm.Opcodes;
+import jdk.internal.org.objectweb.asm.tree.ClassNode;
 import jdk.internal.org.objectweb.asm.tree.FieldInsnNode;
 import jdk.internal.org.objectweb.asm.tree.FieldNode;
 import jdk.internal.org.objectweb.asm.tree.InsnNode;
@@ -14,9 +15,7 @@ import jdk.internal.org.objectweb.asm.tree.IntInsnNode;
 import jdk.internal.org.objectweb.asm.tree.LdcInsnNode;
 import jdk.internal.org.objectweb.asm.tree.MethodInsnNode;
 import jdk.internal.org.objectweb.asm.tree.MethodNode;
-import jdk.internal.org.objectweb.asm.tree.TypeInsnNode;
 import jdk.internal.org.objectweb.asm.tree.VarInsnNode;
-import jdk.internal.org.objectweb.asm.tree.ClassNode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -46,28 +45,33 @@ public final class EntryPointProxy implements Opcodes {
                 config.string("entrypointProxy.packageStyle", config.string("renaming.packageStyle", "spoof")),
                 config.integer("entrypointProxy.packageNameMinLength", config.integer("renaming.packageNameMinLength", 0)),
                 config.integer("entrypointProxy.packageNameMaxLength", config.integer("renaming.packageNameMaxLength", 0)),
-                new Random(seed ^ 0xE771A11CL));
+                new Random(seed ^ 0xE771A11CL)
+        );
         this.classNames = new NameGenerator(
                 config.string("entrypointProxy.classStyle", config.string("renaming.style", "il")),
                 config.integer("entrypointProxy.classNameMinLength", config.integer("renaming.classNameMinLength", 0)),
                 config.integer("entrypointProxy.classNameMaxLength", config.integer("renaming.classNameMaxLength", 0)),
-                new Random(seed ^ 0xE771C1A55L));
+                new Random(seed ^ 0xE771C1A55L)
+        );
         this.memberNames = new NameGenerator(
                 config.string("entrypointProxy.memberStyle", config.string("renaming.memberStyle", config.string("renaming.style", "ascii"))),
                 config.integer("entrypointProxy.memberNameMinLength", config.integer("renaming.memberNameMinLength", 12)),
                 config.integer("entrypointProxy.memberNameMaxLength", config.integer("renaming.memberNameMaxLength", 34)),
-                new Random(seed ^ 0xE771D00DL));
+                new Random(seed ^ 0xE771D00DL)
+        );
     }
 
     public Result apply(JarModel model, MappingContext mapping, Map<String, byte[]> generatedClasses) {
         if (!config.enabled("entrypointProxy", false)) return Result.disabled();
         if (model.pluginMainFqn == null || model.pluginMainFqn.isBlank()) return Result.disabled();
+
         String oldMain = model.pluginMainFqn.replace('.', '/');
         ClassEntry mainEntry = model.classes.get(oldMain);
         if (mainEntry == null) {
             System.err.println("[mcshield] entrypointProxy skipped: main class not found in input model: " + oldMain);
             return Result.disabled();
         }
+
         MethodNode init = noArgConstructor(mainEntry.node);
         if (init == null) {
             System.err.println("[mcshield] entrypointProxy skipped: main class has no no-arg constructor: " + oldMain);
@@ -79,10 +83,16 @@ public final class EntryPointProxy implements Opcodes {
         }
 
         mainEntry.node.access &= ~ACC_FINAL;
+        // Important when frames.mode=preserve or JarIO may reuse original class bytes.
+        // Without this, Kotlin/final plugin main classes stay final in the output jar,
+        // while the generated entrypoint proxy tries to extend them, causing:
+        // IncompatibleClassChangeError: cannot inherit from final class.
+        mainEntry.transformed = true;
 
         List<String> chain = allocateProxyChain(model, mapping, generatedClasses);
         String parent = oldMain;
         String yamlEntry = null;
+
         for (int i = 0; i < chain.size(); i++) {
             String proxy = chain.get(i);
             byte[] bytes = generateProxy(proxy, parent, i, chain.size());
@@ -108,8 +118,11 @@ public final class EntryPointProxy implements Opcodes {
         int minChain = Math.max(1, config.integer("entrypointProxy.chainLengthMin", legacyMin));
         int maxChain = Math.max(minChain, config.integer("entrypointProxy.chainLengthMax", config.integer("entrypointProxy.chainDepthMax", minChain)));
         int count = minChain + (maxChain == minChain ? 0 : random.nextInt(maxChain - minChain + 1));
+
         List<String> out = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) out.add(nextProxyOwner(model, mapping, generatedClasses, out));
+        for (int i = 0; i < count; i++) {
+            out.add(nextProxyOwner(model, mapping, generatedClasses, out));
+        }
         return out;
     }
 
@@ -117,6 +130,7 @@ public final class EntryPointProxy implements Opcodes {
         String base = NameGenerator.cleanPackage(config.string("entrypointProxy.basePackage", config.string("renaming.basePackage", "x")));
         int min = Math.max(0, config.integer("entrypointProxy.packageDepthMin", config.integer("renaming.packageDepthMin", 8)));
         int max = Math.max(min, config.integer("entrypointProxy.packageDepthMax", Math.max(min, config.integer("renaming.packageDepthMax", min))));
+
         int guard = 0;
         while (guard++ < 10000) {
             int depth = min + (max == min ? 0 : random.nextInt(max - min + 1));
@@ -127,11 +141,14 @@ public final class EntryPointProxy implements Opcodes {
             }
             if (sb.length() > 0) sb.append('/');
             sb.append(classNames.next());
+
             String owner = sb.toString();
             if (!model.classes.containsKey(owner)
                     && !mapping.classMap.containsValue(owner)
                     && !generatedClasses.containsKey(owner)
-                    && !allocated.contains(owner)) return owner;
+                    && !allocated.contains(owner)) {
+                return owner;
+            }
         }
         throw new IllegalStateException("Cannot allocate unique entrypoint proxy name");
     }
@@ -139,6 +156,7 @@ public final class EntryPointProxy implements Opcodes {
     private byte[] generateProxy(String proxyOwner, String superOwner, int index, int total) {
         ClassNode cn = new ClassNode(ASM9);
         cn.version = V1_8;
+        // Do not make proxy final. A chainLength > 1 means the next proxy must extend this proxy.
         cn.access = ACC_PUBLIC | ACC_SUPER | ACC_SYNTHETIC;
         cn.name = proxyOwner;
         cn.superName = superOwner;
@@ -151,7 +169,9 @@ public final class EntryPointProxy implements Opcodes {
         init.instructions.add(new InsnNode(RETURN));
         cn.methods.add(init);
 
-        if (config.bool("entrypointProxy.camo", true)) addCamouflage(cn, proxyOwner, superOwner, index, total);
+        if (config.bool("entrypointProxy.camo", true)) {
+            addCamouflage(cn, proxyOwner, superOwner, index, total);
+        }
 
         JarIO.SafeClassWriter cw = new JarIO.SafeClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         cn.accept(cw);
@@ -161,9 +181,11 @@ public final class EntryPointProxy implements Opcodes {
     private void addCamouflage(ClassNode cn, String owner, String superOwner, int index, int total) {
         int fields = Math.max(0, config.integer("entrypointProxy.camoFields", 10));
         int methods = Math.max(0, config.integer("entrypointProxy.camoMethods", 18));
+
         addCamoFields(cn, fields, index);
         addLifecycleBridges(cn, superOwner, index);
         addKnownNameNoise(cn, owner, index);
+
         for (int i = 0; i < methods; i++) {
             int kind = i % 5;
             String n = memberNames.next();
@@ -176,7 +198,11 @@ public final class EntryPointProxy implements Opcodes {
     }
 
     private void addCamoFields(ClassNode cn, int fields, int index) {
-        String[] seeded = {"licenseManager", "pendingCards", "bankPaymentManager", "paymentGuiManager", "pending", "api", "scheduler", "registry", "reloadToken", "httpClient"};
+        String[] seeded = {
+                "licenseManager", "pendingCards", "bankPaymentManager", "paymentGuiManager", "pending",
+                "api", "scheduler", "registry", "reloadToken", "httpClient"
+        };
+
         for (int i = 0; i < fields; i++) {
             String name = i < seeded.length ? seeded[i] : memberNames.next();
             String desc = switch (i % 6) {
@@ -213,25 +239,49 @@ public final class EntryPointProxy implements Opcodes {
         onDisable.instructions.add(new InsnNode(RETURN));
         cn.methods.add(onDisable);
 
-        MethodNode onCommand = new MethodNode(ACC_PUBLIC, "onCommand", "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Z", null, null);
+        MethodNode onCommand = new MethodNode(
+                ACC_PUBLIC,
+                "onCommand",
+                "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Z",
+                null,
+                null
+        );
         addNoise(onCommand, index ^ 0x33);
         onCommand.instructions.add(new VarInsnNode(ALOAD, 0));
         onCommand.instructions.add(new VarInsnNode(ALOAD, 1));
         onCommand.instructions.add(new VarInsnNode(ALOAD, 2));
         onCommand.instructions.add(new VarInsnNode(ALOAD, 3));
         onCommand.instructions.add(new VarInsnNode(ALOAD, 4));
-        onCommand.instructions.add(new MethodInsnNode(INVOKESPECIAL, superOwner, "onCommand", "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Z", false));
+        onCommand.instructions.add(new MethodInsnNode(
+                INVOKESPECIAL,
+                superOwner,
+                "onCommand",
+                "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Z",
+                false
+        ));
         onCommand.instructions.add(new InsnNode(IRETURN));
         cn.methods.add(onCommand);
 
-        MethodNode onTab = new MethodNode(ACC_PUBLIC, "onTabComplete", "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/List;", null, null);
+        MethodNode onTab = new MethodNode(
+                ACC_PUBLIC,
+                "onTabComplete",
+                "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/List;",
+                null,
+                null
+        );
         addNoise(onTab, index ^ 0x44);
         onTab.instructions.add(new VarInsnNode(ALOAD, 0));
         onTab.instructions.add(new VarInsnNode(ALOAD, 1));
         onTab.instructions.add(new VarInsnNode(ALOAD, 2));
         onTab.instructions.add(new VarInsnNode(ALOAD, 3));
         onTab.instructions.add(new VarInsnNode(ALOAD, 4));
-        onTab.instructions.add(new MethodInsnNode(INVOKESPECIAL, superOwner, "onTabComplete", "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/List;", false));
+        onTab.instructions.add(new MethodInsnNode(
+                INVOKESPECIAL,
+                superOwner,
+                "onTabComplete",
+                "(Lorg/bukkit/command/CommandSender;Lorg/bukkit/command/Command;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/List;",
+                false
+        ));
         onTab.instructions.add(new InsnNode(ARETURN));
         cn.methods.add(onTab);
     }
@@ -267,14 +317,16 @@ public final class EntryPointProxy implements Opcodes {
     private void addObjectNoise(ClassNode cn, String owner, String name, int id) {
         MethodNode m = new MethodNode(ACC_PUBLIC | ACC_SYNTHETIC, name, "(Ljava/lang/Object;)Ljava/lang/Object;", null, null);
         if (!cn.fields.isEmpty()) {
-            FieldNode fn = (FieldNode) cn.fields.get(Math.floorMod(id, cn.fields.size()));
+            FieldNode fn = cn.fields.get(Math.floorMod(id, cn.fields.size()));
             if (fn.desc.startsWith("L") || fn.desc.startsWith("[")) {
                 m.instructions.add(new VarInsnNode(ALOAD, 0));
                 m.instructions.add(new FieldInsnNode(GETFIELD, owner, fn.name, fn.desc));
             } else {
                 m.instructions.add(new InsnNode(ACONST_NULL));
             }
-        } else m.instructions.add(new InsnNode(ACONST_NULL));
+        } else {
+            m.instructions.add(new InsnNode(ACONST_NULL));
+        }
         m.instructions.add(new InsnNode(ARETURN));
         cn.methods.add(m);
     }
@@ -301,13 +353,20 @@ public final class EntryPointProxy implements Opcodes {
     }
 
     private void pushInt(MethodNode m, int v) {
-        if (v >= -1 && v <= 5) m.instructions.add(new InsnNode(ICONST_0 + v));
-        else if (v >= Byte.MIN_VALUE && v <= Byte.MAX_VALUE) m.instructions.add(new IntInsnNode(BIPUSH, v));
-        else if (v >= Short.MIN_VALUE && v <= Short.MAX_VALUE) m.instructions.add(new IntInsnNode(SIPUSH, v));
-        else m.instructions.add(new LdcInsnNode(v));
+        if (v >= -1 && v <= 5) {
+            m.instructions.add(new InsnNode(ICONST_0 + v));
+        } else if (v >= Byte.MIN_VALUE && v <= Byte.MAX_VALUE) {
+            m.instructions.add(new IntInsnNode(BIPUSH, v));
+        } else if (v >= Short.MIN_VALUE && v <= Short.MAX_VALUE) {
+            m.instructions.add(new IntInsnNode(SIPUSH, v));
+        } else {
+            m.instructions.add(new LdcInsnNode(v));
+        }
     }
 
     public record Result(boolean enabled, String originalMain, String proxyOwner, Map<String, String> yamlRemap, int chainDepth) {
-        static Result disabled() { return new Result(false, null, null, null, 0); }
+        static Result disabled() {
+            return new Result(false, null, null, null, 0);
+        }
     }
 }
