@@ -8,8 +8,8 @@
 seed: 0
 
 frames:
-  # Preserve StackMapTable để tránh VerifyError với dependency/shaded libs.
-  mode: preserve
+  # CODE-BODY OBF: compute/rewrite từ ClassNode để string/cflow áp vào mọi class plugin.
+  mode: compute
 
 runtime:
   package: rt.mcshield
@@ -58,7 +58,7 @@ pluginYaml:
   virtualizeCommands: false
 
 mapping:
-  writeFile: false
+  writeFile: true
 
 renaming:
   enabled: true
@@ -81,8 +81,8 @@ renaming:
   fields: true
 
   minecraftSafe: true
-  keepNonPrivateMethods: true
-  keepNonPrivateFields: true
+  keepNonPrivateMethods: false
+  keepNonPrivateFields: false
   keepBukkitEventHandlers: true
   keepAnnotations: true
 
@@ -143,7 +143,7 @@ renaming:
 # boot.Pivot extends JavaPlugin trực tiếp
 # real delegate không nằm trên superclass chain.
 shellDelegate:
-  enabled: true
+  enabled: false
   publicMain: boot.Pivot
   hideDelegateDescriptor: true
   bridgeNamesRandom: true
@@ -182,7 +182,7 @@ shellDelegate:
   runtimeCommandRegistration: false
 
 entrypointProxy:
-  enabled: false
+  enabled: true
 shadowBoot:
   enabled: false
 shadowVault:
@@ -192,7 +192,7 @@ javaPluginUnderlay:
   enabled: false
 
 javaPluginDecoys:
-  enabled: true
+  enabled: false
   classes: 240
   fieldCount: 64
   methodCount: 180
@@ -202,24 +202,68 @@ javaPluginDecoys:
   fakeLifecycle: true
   fakeSensitiveNames: true
 
-# Các module rewrite body mạnh để OFF mặc định cho mọi plugin.
+# CODE-BODY OBF: bật để rối bytecode bên trong method thật.
 stringEncryption:
-  enabled: false
+  enabled: true
+  mode: array
+  minLength: 2
+  arrayMaxLength: 4096
+  arrayMethodBudget: 12000
+  overflowMode: indy
+  skipClasses:
+    - org/bukkit/**
+    - org/spigotmc/**
+    - io/papermc/**
+    - net/kyori/**
+    - net/minecraft/**
+    - com/mojang/**
+    - kotlin/**
+    - kotlinx/**
+    - org/jetbrains/**
+    - org/slf4j/**
+    - org/yaml/**
+    - okhttp3/**
+    - okio/**
+    - com/fasterxml/**
+    - org/apache/**
 referenceReflection:
   enabled: false
+  instance: true
+  # Bật sau khi plugin load ổn. Nếu bật, nên khai báo targets/instanceTargets cụ thể.
 fieldReflection:
   enabled: false
+  maxPerMethod: 8
+  rewriteWrites: false
+  renamedOnly: false
+  privateOnly: true
 antiDebug:
   enabled: false
 controlFlow:
-  enabled: false
+  enabled: true
+  level: 1
+  skipClasses:
+    - org/bukkit/**
+    - org/spigotmc/**
+    - io/papermc/**
+    - net/kyori/**
+    - net/minecraft/**
+    - com/mojang/**
+    - kotlin/**
+    - kotlinx/**
+    - org/jetbrains/**
+    - org/slf4j/**
+    - org/yaml/**
+    - okhttp3/**
+    - okio/**
+    - com/fasterxml/**
+    - org/apache/**
 
 antiDecompile:
   enabled: true
   sourceNoise: true
   fakeCLanguage: true
   cSourceFile: entry.c
-  localVariableNoise: false
+  localVariableNoise: true
   lineNoise: true
   exceptionNoise: false
   stripLocalVariables: true
@@ -234,7 +278,7 @@ antiDecompile:
     - kotlinx/**
 
 deadCode:
-  enabled: true
+  enabled: false
   classes: 48
   methodsPerClass: 5
   package: z.x.y
@@ -245,7 +289,7 @@ deadCode:
     maxDepth: 10
 
 decoyTree:
-  enabled: true
+  enabled: false
   classes: 120
   resources: true
   resourceFiles: 48
